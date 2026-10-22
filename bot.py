@@ -14,7 +14,8 @@ SITE = "https://medcol-ptz.ru/student/studies/"
 TZ = ZoneInfo("Europe/Moscow")
 USER_AGENT = "Mozilla/5.0 (compatible; Schedule158sBot/1.0)"
 TIMEOUT = (15, 60)
-TELEGRAM_CHAT_ID = "-1003713510288"  # Group from the provided Telegram message link\nTELEGRAM_THREAD_ID = 44  # Topic "📅 РАСПИСАНИЕ" from t.me/c/.../44/... link
+TELEGRAM_CHAT_ID = "-1003713510288"  # Group from the provided Telegram message link
+TELEGRAM_THREAD_ID = 44  # Topic "📅 РАСПИСАНИЕ" from t.me/c/.../44/... link
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
