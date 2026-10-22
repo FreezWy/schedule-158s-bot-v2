@@ -208,12 +208,27 @@ def main():
     with requests.Session() as session:
         session.headers.update({"User-Agent": USER_AGENT})
         filename, start, end, workbook = get_latest_schedule(session)
+        today_date = datetime.now(TZ).date()
+        if end < today_date:
+            workbook.close()
+            message = (
+                "⚠️ НОВОЕ РАСПИСАНИЕ ПОКА НЕ НАЙДЕНО\\n"
+                f"На сайте всё ещё указан файл: {filename}\\n"
+                f"Период файла: {start.strftime('%d.%m.%Y')}–{end.strftime('%d.%m.%Y')}\\n"
+                f"Сегодня: {today_date.strftime('%d.%m.%Y')}\\n\\n"
+                "Старое расписание не отправляю, потому что его период уже закончился. "
+                "Проверь страницу колледжа: " + SITE
+            )
+            send_telegram(session, message)
+            log.warning("Не отправляю устаревшее расписание: %s (%s–%s)", filename, start, end)
+            return
+
         try:
             schedule = extract_group(workbook)
         finally:
             workbook.close()
 
-        today = datetime.now(TZ).strftime("%d.%m.%Y")
+        today = today_date.strftime("%d.%m.%Y")
         message = (
             "🩺 РАСПИСАНИЕ ГРУППЫ 158с\n"
             f"📆 Период: {start.strftime('%d.%m.%Y')}–{end.strftime('%d.%m.%Y')}\n"
