@@ -206,6 +206,21 @@ def send_telegram(session, message):
         if not payload.get("ok"):
             raise RuntimeError(f"Telegram API вернул ошибку: {payload}")
 
+        sent_message = payload.get("result") or {}
+        sent_thread_id = sent_message.get("message_thread_id")
+        log.info(
+            "Telegram accepted message: chat_id=%s, message_id=%s, message_thread_id=%s",
+            sent_message.get("chat", {}).get("id"),
+            sent_message.get("message_id"),
+            sent_thread_id,
+        )
+        if sent_thread_id != TELEGRAM_THREAD_ID:
+            raise RuntimeError(
+                f"Сообщение отправлено не в ожидаемую тему: ожидалась тема "
+                f"{TELEGRAM_THREAD_ID}, Telegram вернул message_thread_id={sent_thread_id}. "
+                "Проверь ID группы и темы."
+            )
+
 
 def main():
     # Validate secrets before doing web requests.
