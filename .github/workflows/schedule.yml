@@ -1,0 +1,37 @@
+name: Send group 158s schedule
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sundays at 16:00 Moscow time (13:00 UTC).
+    - cron: "0 13 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schedule-158s-bot
+  cancel-in-progress: false
+
+jobs:
+  send-schedule:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Send schedule to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot.py
