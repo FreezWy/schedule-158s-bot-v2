@@ -14,7 +14,7 @@ SITE = "https://medcol-ptz.ru/student/studies/"
 TZ = ZoneInfo("Europe/Moscow")
 USER_AGENT = "Mozilla/5.0 (compatible; Schedule158sBot/1.0)"
 TIMEOUT = (15, 60)
-TELEGRAM_THREAD_ID = 44  # Topic "📅 РАСПИСАНИЕ" in the group
+TELEGRAM_CHAT_ID = "-1003713510288"  # Group from the provided Telegram message link\nTELEGRAM_THREAD_ID = 44  # Topic "📅 РАСПИСАНИЕ" from t.me/c/.../44/... link
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -184,7 +184,7 @@ def split_message(text, limit=3800):
 
 def send_telegram(session, message):
     token = os.environ["TELEGRAM_BOT_TOKEN"].strip()
-    chat_id = os.environ["TELEGRAM_CHAT_ID"].strip()
+    chat_id = TELEGRAM_CHAT_ID
     if not token or not chat_id:
         raise RuntimeError("Не заданы TELEGRAM_BOT_TOKEN и/или TELEGRAM_CHAT_ID.")
 
@@ -208,8 +208,8 @@ def send_telegram(session, message):
 
 def main():
     # Validate secrets before doing web requests.
-    if not os.getenv("TELEGRAM_BOT_TOKEN") or not os.getenv("TELEGRAM_CHAT_ID"):
-        raise RuntimeError("Добавь TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID в GitHub Secrets.")
+    if not os.getenv("TELEGRAM_BOT_TOKEN"):
+        raise RuntimeError("Добавь TELEGRAM_BOT_TOKEN в GitHub Secrets.")
 
     with requests.Session() as session:
         session.headers.update({"User-Agent": USER_AGENT})
