@@ -212,10 +212,10 @@ def main():
         if end < today_date:
             workbook.close()
             message = (
-                "⚠️ НОВОЕ РАСПИСАНИЕ ПОКА НЕ НАЙДЕНО\\n"
-                f"На сайте всё ещё указан файл: {filename}\\n"
-                f"Период файла: {start.strftime('%d.%m.%Y')}–{end.strftime('%d.%m.%Y')}\\n"
-                f"Сегодня: {today_date.strftime('%d.%m.%Y')}\\n\\n"
+                "⚠️ НОВОЕ РАСПИСАНИЕ ПОКА НЕ НАЙДЕНО\n"
+                f"На сайте всё ещё указан файл: {filename}\n"
+                f"Период файла: {start.strftime('%d.%m.%Y')}–{end.strftime('%d.%m.%Y')}\n"
+                f"Сегодня: {today_date.strftime('%d.%m.%Y')}\n\n"
                 "Старое расписание не отправляю, потому что его период уже закончился. "
                 "Проверь страницу колледжа: " + SITE
             )
