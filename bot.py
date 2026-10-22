@@ -14,6 +14,7 @@ SITE = "https://medcol-ptz.ru/student/studies/"
 TZ = ZoneInfo("Europe/Moscow")
 USER_AGENT = "Mozilla/5.0 (compatible; Schedule158sBot/1.0)"
 TIMEOUT = (15, 60)
+TELEGRAM_THREAD_ID = 44  # Topic "📅 РАСПИСАНИЕ" in the group
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -191,7 +192,12 @@ def send_telegram(session, message):
     for part in split_message(message):
         response = session.post(
             api_url,
-            json={"chat_id": chat_id, "text": part, "disable_web_page_preview": True},
+            json={
+                "chat_id": chat_id,
+                "message_thread_id": TELEGRAM_THREAD_ID,
+                "text": part,
+                "disable_web_page_preview": True,
+            },
             timeout=TIMEOUT,
         )
         response.raise_for_status()
