@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import os
 import re
@@ -222,44 +224,184 @@ def send_telegram(session, message):
             )
 
 
-def main():
-    # Validate secrets before doing web requests.
-    if not os.getenv("TELEGRAM_BOT_TOKEN"):
-        raise RuntimeError("Добавь TELEGRAM_BOT_TOKEN в GitHub Secrets.")
+STATE_PATH = "bot_state.json"
+AUTO_CHECK_HOURS = {9, 13, 17, 21}
 
-    with requests.Session() as session:
-        session.headers.update({"User-Agent": USER_AGENT})
-        filename, start, end, workbook = get_latest_schedule(session)
-        today_date = datetime.now(TZ).date()
-        if end < today_date:
-            workbook.close()
-            message = (
+
+def load_state():
+    try:
+        with open(STATE_PATH, "r", encoding="utf-8") as handle:
+            state = json.load(handle)
+            if isinstance(state, dict):
+                return state
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        log.warning("Не удалось прочитать состояние бота: %s", exc)
+    return {"last_update_id": -1, "last_check": None, "last_filename": None,
+            "last_start": None, "last_end": None, "last_schedule_hash": None,
+            "last_result": "Проверка ещё не выполнялась", "last_auto_slot": None}
+
+
+def save_state(state):
+    with open(STATE_PATH, "w", encoding="utf-8") as handle:
+        json.dump(state, handle, ensure_ascii=False, indent=2)
+
+
+def telegram_api(session, method, **kwargs):
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("Добавь TELEGRAM_BOT_TOKEN в GitHub Secrets.")
+    response = session.post(f"https://api.telegram.org/bot{token}/{method}",
+                            json=kwargs, timeout=TIMEOUT)
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("ok"):
+        raise RuntimeError(f"Telegram API {method} вернул ошибку: {payload}")
+    return payload.get("result")
+
+
+def send_chat_message(session, chat_id, message, thread_id=None):
+    for part in split_message(message):
+        args = {"chat_id": chat_id, "text": part, "disable_web_page_preview": True}
+        if thread_id is not None:
+            args["message_thread_id"] = thread_id
+        telegram_api(session, "sendMessage", **args)
+
+
+def check_schedule(session, state, notify_chat_id=None, notify_thread_id=None):
+    now = datetime.now(TZ)
+    checked_at = now.strftime("%d.%m.%Y %H:%M")
+    filename, start, end, workbook = get_latest_schedule(session)
+
+    if end < now.date():
+        workbook.close()
+        fingerprint = hashlib.sha256(f"outdated|{filename}|{start}|{end}".encode("utf-8")).hexdigest()
+        changed = fingerprint != state.get("last_schedule_hash")
+        state.update({"last_check": checked_at, "last_filename": filename,
+                      "last_start": start.isoformat(), "last_end": end.isoformat(),
+                      "last_schedule_hash": fingerprint,
+                      "last_result": f"На сайте пока устаревший файл за {start:%d.%m.%Y}–{end:%d.%m.%Y}"})
+        if changed:
+            send_telegram(session,
                 "⚠️ НОВОЕ РАСПИСАНИЕ ПОКА НЕ НАЙДЕНО\n"
                 f"На сайте всё ещё указан файл: {filename}\n"
-                f"Период файла: {start.strftime('%d.%m.%Y')}–{end.strftime('%d.%m.%Y')}\n"
-                f"Сегодня: {today_date.strftime('%d.%m.%Y')}\n\n"
-                "Старое расписание не отправляю, потому что его период уже закончился. "
-                "Проверь страницу колледжа: " + SITE
-            )
-            send_telegram(session, message)
-            log.warning("Не отправляю устаревшее расписание: %s (%s–%s)", filename, start, end)
-            return
+                f"Период файла: {start:%d.%m.%Y}–{end:%d.%m.%Y}\n"
+                f"Проверено: {checked_at}\n\nОфициальный сайт: {SITE}")
+        if notify_chat_id is not None:
+            send_chat_message(session, notify_chat_id,
+                "⚠️ На сайте пока нет актуального расписания.\n"
+                f"Последний найденный файл: {start:%d.%m.%Y}–{end:%d.%m.%Y}.\n"
+                "Я сообщу в тему расписания, когда появится новый файл.\n" + SITE,
+                notify_thread_id)
+        return changed
 
-        try:
-            schedule = extract_group(workbook)
-        finally:
-            workbook.close()
+    try:
+        schedule = extract_group(workbook)
+    finally:
+        workbook.close()
 
-        today = today_date.strftime("%d.%m.%Y")
-        message = (
+    fingerprint = hashlib.sha256(
+        f"{filename}|{start.isoformat()}|{end.isoformat()}|{schedule}".encode("utf-8")
+    ).hexdigest()
+    changed = fingerprint != state.get("last_schedule_hash")
+    state.update({"last_check": checked_at, "last_filename": filename,
+                  "last_start": start.isoformat(), "last_end": end.isoformat(),
+                  "last_schedule_hash": fingerprint,
+                  "last_result": "Расписание обновилось" if changed else "Изменений нет"})
+
+    if changed:
+        send_telegram(session,
             "🩺 РАСПИСАНИЕ ГРУППЫ 158с\n"
-            f"📆 Период: {start.strftime('%d.%m.%Y')}–{end.strftime('%d.%m.%Y')}\n"
-            f"🔎 Проверено: {today}\n\n"
-            f"{schedule}\n\n"
-            f"🌐 Официальный сайт: {SITE}"
-        )
-        send_telegram(session, message)
-        log.info("Расписание группы 158с успешно отправлено в Telegram.")
+            f"📆 Период: {start:%d.%m.%Y}–{end:%d.%m.%Y}\n"
+            f"🔎 Проверено: {checked_at}\n\n{schedule}\n\n🌐 Официальный сайт: {SITE}")
+        if notify_chat_id is not None:
+            send_chat_message(session, notify_chat_id,
+                "✅ Расписание обновилось! Новая версия отправлена в тему «📅 РАСПИСАНИЕ».\n"
+                f"Период: {start:%d.%m.%Y}–{end:%d.%m.%Y}.\nПроверено: {checked_at}",
+                notify_thread_id)
+    elif notify_chat_id is not None:
+        send_chat_message(session, notify_chat_id,
+            "🔎 Проверил официальный сайт колледжа.\n"
+            "Изменений в расписании группы 158с не обнаружено.\n"
+            f"Актуальный период: {start:%d.%m.%Y}–{end:%d.%m.%Y}.\n"
+            f"Проверено: {checked_at}",
+            notify_thread_id)
+    log.info("Проверка завершена: %s", state["last_result"])
+    return changed
+
+
+def command_name(text):
+    if not text:
+        return ""
+    first = text.strip().split()[0]
+    return first.split("@", 1)[0].lower() if first.startswith("/") else ""
+
+
+def poll_telegram_commands(session, state):
+    offset = int(state.get("last_update_id", -1)) + 1
+    updates = telegram_api(session, "getUpdates", offset=offset, timeout=0,
+                           allowed_updates=["message"])
+    for update in updates or []:
+        state["last_update_id"] = max(int(state.get("last_update_id", -1)), int(update["update_id"]))
+        message = update.get("message") or {}
+        command = command_name(message.get("text", ""))
+        chat = message.get("chat") or {}
+        chat_id = chat.get("id")
+        thread_id = message.get("message_thread_id")
+        if not chat_id or command not in {"/start", "/check", "/status"}:
+            continue
+        if command == "/start":
+            send_chat_message(session, chat_id,
+                "Привет! Я слежу за расписанием группы 158с.\n\n"
+                "/check — проверить сайт сейчас\n/status — результат последней проверки\n\n"
+                "Автоматические проверки выполняются с пятницы по воскресенье.",
+                thread_id)
+        elif command == "/status":
+            last_check = state.get("last_check") or "ещё не было"
+            filename = state.get("last_filename") or "пока не найден"
+            start, end = state.get("last_start"), state.get("last_end")
+            period = f"{datetime.fromisoformat(start):%d.%m.%Y}–{datetime.fromisoformat(end):%d.%m.%Y}" if start and end else "неизвестен"
+            send_chat_message(session, chat_id,
+                "📊 Статус бота расписания\n"
+                f"Последняя проверка: {last_check}\n"
+                f"Результат: {state.get('last_result', 'нет данных')}\n"
+                f"Файл: {filename}\nПериод: {period}\n"
+                "Автопроверки: пятница–воскресенье, 09:00, 13:00, 17:00 и 21:00 по Москве.",
+                thread_id)
+        elif command == "/check":
+            try:
+                check_schedule(session, state, chat_id, thread_id)
+            except Exception as exc:
+                log.exception("Ошибка ручной проверки")
+                send_chat_message(session, chat_id,
+                    "❌ Не удалось проверить расписание. Попробуй позже.\n"
+                    f"Причина: {str(exc)[:700]}\n{SITE}", thread_id)
+
+
+def main():
+    if not os.getenv("TELEGRAM_BOT_TOKEN"):
+        raise RuntimeError("Добавь TELEGRAM_BOT_TOKEN в GitHub Secrets.")
+    state = load_state()
+    with requests.Session() as session:
+        session.headers.update({"User-Agent": USER_AGENT})
+        poll_telegram_commands(session, state)
+        now = datetime.now(TZ)
+        force_check = os.getenv("FORCE_SCHEDULE_CHECK", "").lower() == "true"
+        slot = now.strftime("%Y-%m-%d-%H")
+        is_auto_window = now.weekday() in {4, 5, 6} and now.hour in AUTO_CHECK_HOURS
+        should_auto_check = is_auto_window and state.get("last_auto_slot") != slot
+        if force_check or should_auto_check:
+            try:
+                check_schedule(session, state)
+                if should_auto_check:
+                    state["last_auto_slot"] = slot
+            except Exception as exc:
+                log.exception("Автоматическая проверка расписания завершилась ошибкой")
+                state["last_check"] = datetime.now(TZ).strftime("%d.%m.%Y %H:%M")
+                state["last_result"] = f"Ошибка проверки: {str(exc)[:300]}"
+                raise
+        save_state(state)
 
 
 if __name__ == "__main__":
