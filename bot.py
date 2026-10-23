@@ -153,6 +153,22 @@ def extract_group(workbook):
                     continue
 
                 slot = f"🕒 {time_label}" if time_label else "🕒 Пара"
+
+                # If Excel merges the whole 4-column day block into one cell,
+                # the lesson is shared by both subgroups.
+                common_value = ""
+                for merged_range in ws.merged_cells.ranges:
+                    if (merged_range.min_row <= row <= merged_range.max_row
+                            and merged_range.min_col <= start_col
+                            and merged_range.max_col >= end_col):
+                        common_value = clean(ws.cell(merged_range.min_row, merged_range.min_col).value)
+                        if common_value:
+                            break
+
+                if common_value:
+                    day_lines.append(f"{slot}\n   👥 ОБЩАЯ ПАРА: {common_value}")
+                    continue
+
                 left_text = " / ".join(subgroup_2) if subgroup_2 else "— пары нет"
                 right_text = " / ".join(subgroup_1) if subgroup_1 else "— пары нет"
                 day_lines.append(
