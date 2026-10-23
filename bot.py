@@ -130,31 +130,42 @@ def extract_group(workbook):
         first_row, end_row = block
         lines = []
         for day, start_col, end_col in DAY_BLOCKS:
-            # Header cells are B, G, K, O, S and W in this workbook layout.
+            # In each 4-column day block, the two left columns are subgroup 2
+            # and the two right columns are subgroup 1.
             header_col = start_col - 1 if start_col == 3 else start_col
             date_label = date_from_header(ws.cell(2, header_col).value)
             day_lines = []
 
             for row in range(first_row, end_row):
                 time_label = clean(ws.cell(row, 2).value)
-                subjects = []
-                for col in range(start_col, end_col + 1):
+                subgroup_2 = []
+                subgroup_1 = []
+                for col in range(start_col, start_col + 2):
                     value = clean(ws.cell(row, col).value)
-                    if value and value not in subjects:
-                        subjects.append(value)
-                if subjects:
-                    # Different cells can represent separate subgroups; keep each entry.
-                    for subject in subjects:
-                        if time_label:
-                            day_lines.append(f"• {time_label}\n  {subject}")
-                        else:
-                            day_lines.append(f"• {subject}")
+                    if value and value not in subgroup_2:
+                        subgroup_2.append(value)
+                for col in range(start_col + 2, end_col + 1):
+                    value = clean(ws.cell(row, col).value)
+                    if value and value not in subgroup_1:
+                        subgroup_1.append(value)
+
+                if not time_label and not subgroup_1 and not subgroup_2:
+                    continue
+
+                slot = f"🕒 {time_label}" if time_label else "🕒 Пара"
+                left_text = " / ".join(subgroup_2) if subgroup_2 else "— пары нет"
+                right_text = " / ".join(subgroup_1) if subgroup_1 else "— пары нет"
+                day_lines.append(
+                    f"{slot}\n"
+                    f"   2-я подгруппа (слева): {left_text}\n"
+                    f"   1-я подгруппа (справа): {right_text}"
+                )
 
             if day_lines:
                 heading = f"📅 {day}"
                 if date_label:
                     heading += f", {date_label}"
-                lines.append(heading + "\n" + "\n".join(day_lines))
+                lines.append(heading + "\n" + "\n\n".join(day_lines))
 
         if not lines:
             raise RuntimeError("Блок 158с найден, но занятия в его колонках не обнаружены.")
