@@ -130,52 +130,73 @@ def extract_group(workbook):
         first_row, end_row = block
         lines = []
         for day, start_col, end_col in DAY_BLOCKS:
-            # In each 4-column day block, the two left columns are subgroup 2
-            # and the two right columns are subgroup 1.
             header_col = start_col - 1 if start_col == 3 else start_col
             date_label = date_from_header(ws.cell(2, header_col).value)
             day_lines = []
+            emitted_merges = set()
 
             for row in range(first_row, end_row):
-                time_label = clean(ws.cell(row, 2).value)
-                subgroup_2 = []
-                subgroup_1 = []
+                # Brigade 1 is on the left; brigade 2 is on the right.
+                brigade_1 = []
+                brigade_2 = []
+                lesson_end_row = row
+
+                for merged_range in ws.merged_cells.ranges:
+                    if (merged_range.min_row == row
+                            and merged_range.max_col >= start_col
+                            and merged_range.min_col <= end_col
+                            and merged_range.max_row > row):
+                        # A lesson merged vertically occupies the whole time span;
+                        # don't emit false empty slots for the rows it covers.
+                        lesson_end_row = max(lesson_end_row, merged_range.max_row)
+
                 for col in range(start_col, start_col + 2):
                     value = clean(ws.cell(row, col).value)
-                    if value and value not in subgroup_2:
-                        subgroup_2.append(value)
+                    if value and value not in brigade_1:
+                        brigade_1.append(value)
                 for col in range(start_col + 2, end_col + 1):
                     value = clean(ws.cell(row, col).value)
-                    if value and value not in subgroup_1:
-                        subgroup_1.append(value)
+                    if value and value not in brigade_2:
+                        brigade_2.append(value)
 
-                if not time_label and not subgroup_1 and not subgroup_2:
-                    continue
-
-                slot = f"🕒 {time_label}" if time_label else "🕒 Пара"
-
-                # If Excel merges the whole 4-column day block into one cell,
-                # the lesson is shared by both subgroups.
+                # Shared lesson: one merged cell across the full four-column block.
                 common_value = ""
+                common_key = None
                 for merged_range in ws.merged_cells.ranges:
-                    if (merged_range.min_row <= row <= merged_range.max_row
+                    if (merged_range.min_row == row
                             and merged_range.min_col <= start_col
                             and merged_range.max_col >= end_col):
                         common_value = clean(ws.cell(merged_range.min_row, merged_range.min_col).value)
-                        if common_value:
-                            break
+                        common_key = str(merged_range)
+                        lesson_end_row = max(lesson_end_row, merged_range.max_row)
+                        break
+
+                # Don't create entries for empty timetable rows/days.
+                if not common_value and not brigade_1 and not brigade_2:
+                    continue
+
+                # If a merged lesson spans multiple rows, combine their time labels
+                # into one continuous lesson instead of showing a false empty pair.
+                start_time = clean(ws.cell(row, 2).value)
+                end_time = clean(ws.cell(lesson_end_row, 2).value) if lesson_end_row > row else ""
+                if start_time and end_time and end_time != start_time:
+                    slot = f"🕒 {start_time}–{end_time}"
+                else:
+                    slot = f"🕒 {start_time}" if start_time else "🕒 Пара"
 
                 if common_value:
+                    if common_key in emitted_merges:
+                        continue
+                    emitted_merges.add(common_key)
                     day_lines.append(f"{slot}\n   👥 ОБЩАЯ ПАРА: {common_value}")
                     continue
 
-                left_text = " / ".join(subgroup_2) if subgroup_2 else "— пары нет"
-                right_text = " / ".join(subgroup_1) if subgroup_1 else "— пары нет"
-                day_lines.append(
-                    f"{slot}\n"
-                    f"   2-я подгруппа (слева): {left_text}\n"
-                    f"   1-я подгруппа (справа): {right_text}"
-                )
+                parts = []
+                if brigade_1:
+                    parts.append(f"   1-я бригада: {' / '.join(brigade_1)}")
+                if brigade_2:
+                    parts.append(f"   2-я бригада: {' / '.join(brigade_2)}")
+                day_lines.append(slot + "\n" + "\n".join(parts))
 
             if day_lines:
                 heading = f"📅 {day}"
