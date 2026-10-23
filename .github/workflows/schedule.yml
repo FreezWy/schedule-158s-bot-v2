@@ -9,8 +9,8 @@ on:
         type: boolean
         default: true
   schedule:
-    # Poll Telegram commands every 15 minutes. GitHub-hosted schedules can be delayed.
-    - cron: "*/15 * * * *"
+    # Poll Telegram commands every 5 minutes. GitHub-hosted schedules can still be delayed.
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: write
