@@ -294,6 +294,11 @@ def check_schedule(session, state, notify_chat_id=None, notify_thread_id=None):
                 f"Последний найденный файл: {start:%d.%m.%Y}–{end:%d.%m.%Y}.\n"
                 "Я сообщу в тему расписания, когда появится новый файл.\n" + SITE,
                 notify_thread_id)
+        notify_owner_status(session, state,
+            "📊 Отчёт проверки расписания 158с\n"
+            "⚠️ На сайте пока нет актуального расписания.\n"
+            f"Файл: {filename}\nПериод: {start:%d.%m.%Y}–{end:%d.%m.%Y}\n"
+            f"Проверено: {checked_at}\n{SITE}", notify_chat_id)
         return changed
 
     try:
@@ -328,7 +333,22 @@ def check_schedule(session, state, notify_chat_id=None, notify_thread_id=None):
             f"Проверено: {checked_at}",
             notify_thread_id)
     log.info("Проверка завершена: %s", state["last_result"])
+    notify_owner_status(session, state,
+        ("🆕 Расписание группы 158с обновилось!" if changed else "✅ Проверка расписания 158с завершена: изменений нет.")
+        + f"\nПериод: {start:%d.%m.%Y}–{end:%d.%m.%Y}"
+        + f"\nПроверено: {checked_at}"
+        + ("\nНовое расписание отправлено в тему «📅 РАСПИСАНИЕ»." if changed else "")
+        + f"\n{SITE}", notify_chat_id)
     return changed
+
+
+def notify_owner_status(session, state, message, exclude_chat_id=None):
+    owner_chat_id = state.get("notification_chat_id")
+    if owner_chat_id and str(owner_chat_id) != str(exclude_chat_id):
+        try:
+            send_chat_message(session, owner_chat_id, message)
+        except Exception:
+            log.exception("Не удалось отправить личный статус владельцу бота")
 
 
 def command_name(text):
@@ -349,6 +369,8 @@ def poll_telegram_commands(session, state):
         chat = message.get("chat") or {}
         chat_id = chat.get("id")
         thread_id = message.get("message_thread_id")
+        if chat.get("type") == "private" and chat_id:
+            state["notification_chat_id"] = str(chat_id)
         if not chat_id or command not in {"/start", "/check", "/status"}:
             continue
         if command == "/start":
@@ -400,6 +422,9 @@ def main():
                 log.exception("Автоматическая проверка расписания завершилась ошибкой")
                 state["last_check"] = datetime.now(TZ).strftime("%d.%m.%Y %H:%M")
                 state["last_result"] = f"Ошибка проверки: {str(exc)[:300]}"
+                notify_owner_status(session, state,
+                    "❌ Не удалось проверить расписание группы 158с.\n"
+                    f"Время: {state['last_check']}\nПричина: {str(exc)[:700]}\n{SITE}")
                 raise
         save_state(state)
 
