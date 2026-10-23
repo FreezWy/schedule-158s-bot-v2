@@ -1,37 +1,51 @@
-name: Send group 158s schedule
+name: Monitor group 158s schedule and Telegram commands
 
 on:
   workflow_dispatch:
+    inputs:
+      force_schedule_check:
+        description: "Force an immediate schedule check"
+        required: false
+        type: boolean
+        default: true
   schedule:
-    # Sundays at 16:00 Moscow time (13:00 UTC).
-    - cron: "0 13 * * 0"
+    # Poll Telegram commands every 15 minutes. GitHub-hosted schedules can be delayed.
+    - cron: "*/15 * * * *"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: schedule-158s-bot
   cancel-in-progress: false
 
 jobs:
-  send-schedule:
+  monitor:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
+        with:
+          token: \${{ secrets.GITHUB_TOKEN }}
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-
-      - name: Send schedule to Telegram
+      - name: Poll commands and check schedule when needed
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: \${{ secrets.TELEGRAM_BOT_TOKEN }}
+          FORCE_SCHEDULE_CHECK: \${{ github.event_name == 'workflow_dispatch' && inputs.force_schedule_check && 'true' || 'false' }}
         run: python bot.py
+      - name: Persist bot state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bot_state.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update schedule bot state"
+            git push
+          fi
